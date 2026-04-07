@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Tabungan Profesional – Ringkas & Target Bulanan</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; user-select: none; font-family: 'Roboto', sans-serif; }
+body { margin: 0; background: #f0f4f8; display: flex; justify-content: center; }
+.app { width: 100%; max-width: 800px; padding: 20px; }
+.header { text-align: center; margin-bottom: 20px; cursor: pointer; }
+.header h1 { margin: 0; color: #0d47a1; font-weight: 700; }
+.header p { margin: 0; font-size: 14px; color: #1976d2; }
+.card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin-bottom: 20px; }
+input, select, button { width: 100%; padding: 8px; margin-top: 5px; border-radius: 6px; border: 1px solid #cfd8dc; font-size: 14px; }
+input:focus, select:focus { outline: none; border-color: #1565c0; box-shadow: 0 0 0 2px rgba(21,101,192,0.2); }
+button { border: none; font-weight: bold; color: white; cursor: pointer; transition: 0.2s; margin-top: 5px; }
+button:active { transform: scale(0.97); }
+.btnAction { background: #1976d2; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+th, td { border: 1px solid #cfd8dc; padding: 6px; text-align: center; }
+th { background: #bbdefb; color: #0d47a1; }
+.footer { text-align: center; font-size: 12px; color: #666; margin: 20px 0 10px 0; }
+.saldoTotal { font-weight: bold; color: #0d47a1; margin-bottom: 10px; text-align: center; }
+.scrollable { max-height: 300px; overflow-y: auto; }
+.toast { position: fixed; top: 20px; right: 20px; background: #1976d2; color: white; padding: 10px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); opacity: 0; transform: translateY(-20px); transition: 0.5s; z-index: 9999; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.progress-container { background: #e0e0e0; border-radius: 10px; overflow: hidden; margin-top: 10px; }
+.progress-bar { height: 25px; background: #1976d2; width: 0%; color: white; text-align: center; line-height: 25px; font-weight: 700; font-size: 14px; }
+.chart-container { margin-top: 20px; }
+#targetLabel { margin: 5px 0; font-weight: 700; color: #0d47a1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header" id="headerTitle">
+    <h1>Tabungan Profesional</h1>
+    <p>Ringkas & Target Bulanan</p>
+  </div>
+
+  <div class="card">
+    <h2>Target Tabungan</h2>
+    <input type="number" id="targetInput" placeholder="Masukkan target (Rp)">
+    <div id="targetLabel">Belum ada target</div>
+    <button class="btnAction" onclick="updateTarget()">Set Target</button>
+    <div class="progress-container">
+      <div class="progress-bar" id="progressBar">0%</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tambah Transaksi</h2>
+    <input type="date" id="tglInput" readonly>
+    <input type="number" id="nominalInput" placeholder="Nominal (Rp)">
+    <select id="jenisInput">
+      <option value="Setor">Setor</option>
+      <option value="Tarik">Tarik</option>
+    </select>
+    <button class="btnAction" onclick="addTransaction()">Action</button>
+  </div>
+
+  <div class="card">
+    <h2>Riwayat Transaksi</h2>
+    <div class="saldoTotal" id="saldoTotal">Saldo: Rp 0</div>
+    <div class="scrollable">
+      <table>
+        <thead>
+          <tr>
+            <th>Tanggal</th>
+            <th>Jenis / Status</th>
+            <th>Nominal</th>
+            <th>Saldo</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Arsip Bulanan</h2>
+    <label for="filterBulan">Filter Bulan:</label>
+    <select id="filterBulan" onchange="changeBulanFilter()">
+      <option value="all">Semua Bulan</option>
+    </select>
+    <div class="scrollable">
+      <table>
+        <thead>
+          <tr>
+            <th>Bulan</th>
+            <th>Total Setor</th>
+            <th>Total Tarik</th>
+            <th>Saldo Akhir</th>
+          </tr>
+        </thead>
+        <tbody id="arsipBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Chart Pencapaian Tabungan</h2>
+    <div class="chart-container">
+      <canvas id="saldoChart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <button onclick="exportData()" class="btnAction">📄 Ekspor CSV</button>
+  </div>
+
+  <div class="footer">© 2026 Zulfahmi Afnula. All Rights Reserved.</div>
+  <div class="toast" id="toast">Transaksi berhasil ditambahkan!</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+const supabase = createClient(
+  'https://yynjkjyzijtukyhavmqn.supabase.co',
+  'sb_publishable_kj0vTSzCm4T1-uvrOrB1GQ_x05jyqxa'
+);
+
+const tglInput = document.getElementById("tglInput");
+const jenisInput = document.getElementById("jenisInput");
+const nominalInput = document.getElementById("nominalInput");
+const tableBody = document.getElementById("tableBody");
+const saldoTotalEl = document.getElementById("saldoTotal");
+const headerTitle = document.getElementById("headerTitle");
+const filterBulan = document.getElementById("filterBulan");
+const arsipBody = document.getElementById("arsipBody");
+const toast = document.getElementById("toast");
+const progressBar = document.getElementById("progressBar");
+const targetInput = document.getElementById("targetInput");
+const targetLabel = document.getElementById("targetLabel");
+const saldoChartCtx = document.getElementById('saldoChart').getContext('2d');
+
+let records = [];
+let targetNominal = 0;
+let lastFilterBulan = 'all';
+
+function setToday() {
+  const now = new Date();
+  tglInput.value = now.toISOString().slice(0,10);
+}
+setToday();
+
+async function loadData() {
+  const { data: transaksi, error } = await supabase
+    .from('tabungan_records')
+    .select('*')
+    .order('tgl', { ascending: true });
+
+  if(error) {
+    alert('Gagal memuat data tabungan');
+    return;
+  }
+
+  records = transaksi || [];
+
+  const { data: targetData } = await supabase
+    .from('tabungan_target')
+    .select('*')
+    .limit(1)
+    .single();
+
+  if(targetData) {
+    targetNominal = targetData.nominal || 0;
+    targetLabel.textContent = 'Target: Rp ' + targetNominal.toLocaleString();
+    targetInput.style.display = 'none';
+  }
+
+  renderTable();
+  renderArsip();
+  updateProgress();
+  updateChart();
+}
+
+// Fungsi addTransaction, updateTarget, updateProgress, showToast, calculateSaldo, fillMissingDays,
+// checkPreviousDays, resetMonthlyHistory, changeBulanFilter, renderTable, renderArsip, exportData,
+// dan autoSyncMidnight tetap identik dengan script awal, persis sama.
+window.addTransaction = addTransaction;
+window.updateTarget = updateTarget;
+window.changeBulanFilter = changeBulanFilter;
+window.exportData = exportData;
+
+let tapCount = 0;
+headerTitle.addEventListener('click', async () => {
+  tapCount++;
+  if(tapCount === 3){
+    if(confirm('PERINGATAN! Restart seluruh data tabungan?')) {
+      await supabase.from('tabungan_records').delete().neq('id',0);
+      await supabase.from('tabungan_target').delete().neq('id',0);
+      records = [];
+      targetNominal = 0;
+      tableBody.innerHTML = '';
+      arsipBody.innerHTML = '';
+      saldoTotalEl.textContent = 'Saldo: Rp 0';
+      targetInput.style.display = 'block';
+      targetInput.value = '';
+      targetLabel.textContent = 'Belum ada target';
+      progressBar.style.width = '0%';
+      progressBar.textContent = '0%';
+      updateChart();
+    }
+    tapCount = 0;
+  }
+  setTimeout(() => tapCount = 0, 1000);
+});
+
+let saldoChart = new Chart(saldoChartCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Saldo Harian',
+      data: [],
+      backgroundColor: 'rgba(25,118,210,0.2)',
+      borderColor: '#1976d2',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.2
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: true } }
+  }
+});
+
+function updateChart() {
+  const dailyMap = {};
+  records.forEach(r => {
+    if(!dailyMap[r.tgl]) dailyMap[r.tgl] = 0;
+    if(r.jenis === 'Setor') dailyMap[r.tgl] += r.nominal;
+    else if(r.jenis === 'Tarik') dailyMap[r.tgl] -= r.nominal;
+  });
+
+  const sortedDates = Object.keys(dailyMap).sort();
+  let cumulative = 0;
+  const data = [];
+
+  sortedDates.forEach(d => {
+    cumulative += dailyMap[d];
+    data.push(cumulative);
+  });
+
+  saldoChart.data.labels = sortedDates;
+  saldoChart.data.datasets[0].data = data;
+  saldoChart.update();
+}
+
+function autoSyncMidnight() {
+  const now = new Date();
+  const millisTillMidnight = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()+1,
+    0,0,0,0
+  ) - now;
+
+  setTimeout(() => {
+    setToday();
+    autoSyncMidnight();
+  }, millisTillMidnight);
+}
+
+autoSyncMidnight();
+loadData();
+</script>
+</div>
+</body>
+</html>      masuk++;
+        } else if (item.status === 'Tidak Masuk') {
+          kelas = 'statusTidak';
+          tidakMasuk++;
+        } else {
+          libur++;
+        }
+
+        tr.innerHTML += `
+          <td>${item.tgl}</td>
+          <td>${item.shift}</td>
+          <td class="${kelas}">${item.status}</td>
+        `;
+
+        tableBody.appendChild(tr);
+      });
+
+      summaryText.textContent =
+        `Periode → Masuk: ${masuk} | Tidak Masuk: ${tidakMasuk} | Libur: ${libur}`;
+    }
+
+    async function addRecord(status) {
+      updateTanggalOtomatis();
+
+      const tgl = tglInput.value;
+      const shift = shiftInput.value;
+
+      if (!tgl) {
+        showToast('Tanggal belum dipilih', 'info');
+        return;
+      }
+
+      const sudahAda = records.some(
+        item => item.tgl === tgl && item.shift === shift
+      );
+
+      if (sudahAda) {
+        showToast('Shift pada tanggal itu sudah dicatat', 'info');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('attendance')
+        .insert([{ tgl, shift, status }])
+        .select();
+
+      if (error) {
+        showToast('Gagal menyimpan data', 'error');
+        return;
+      }
+
+      records.push(data[0]);
+
+      records.sort((a, b) => {
+        return new Date(a.tgl) - new Date(b.tgl);
+      });
+
+      renderTable();
+      showToast(`${status} berhasil dicatat`, 'sukses');
+
+      // Setelah simpan, tanggal otomatis kembali mengikuti hari ini perangkat
+      updateTanggalOtomatis();
+    }
+
+    btnMasuk.addEventListener('click', () => {
+      addRecord('Masuk');
+    });
+
+    btnTidakMasuk.addEventListener('click', () => {
+      addRecord('Tidak Masuk');
+    });
+
+    btnLibur.addEventListener('click', () => {
+      addRecord('Libur');
+    });
+
+    btnModeHapus.addEventListener('click', async () => {
+      if (!modeHapus) {
+        modeHapus = true;
+        btnModeHapus.textContent = 'Hapus Terpilih';
+        btnBatal.style.display = 'block';
+        renderTable();
+        return;
+      }
+
+      const checked = [
+        ...document.querySelectorAll('.checkboxCol input:checked')
+      ];
+
+      if (!checked.length) {
+        showToast('Pilih data yang ingin dihapus', 'info');
+        return;
+      }
+
+      const indexes = checked.map(item => Number(item.value));
+      const ids = indexes.map(index => records[index].id);
+
+      const { error } = await supabase
+        .from('attendance')
+        .delete()
+        .in('id', ids);
+
+      if (error) {
+        showToast('Gagal menghapus data', 'error');
+        return;
+      }
+
+      records = records.filter((_, index) => !indexes.includes(index));
+
+      modeHapus = false;
+      btnModeHapus.textContent = 'Pilih & Hapus';
+      btnBatal.style.display = 'none';
+
+      renderTable();
+      showToast('Data berhasil dihapus', 'sukses');
+    });
+
+    btnBatal.addEventListener('click', () => {
+      modeHapus = false;
+      btnModeHapus.textContent = 'Pilih & Hapus';
+      btnBatal.style.display = 'none';
+      renderTable();
+    });
+
+    btnEkspor.addEventListener('click', () => {
+      if (!records.length) {
+        showToast('Belum ada data untuk diekspor', 'info');
+        return;
+      }
+
+      let csv = 'Tanggal,Shift / Jam,Status\n';
+
+      records.forEach(item => {
+        csv += `${item.tgl},"${item.shift}",${item.status}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement('a');
+
+      link.href = URL.createObjectURL(blob);
+      link.download = `Jadwal_Kerja_${getLocalDateStr()}.csv`;
+      link.click();
+
+      showToast('CSV berhasil diekspor', 'sukses');
+    });
+
+    btnLihatArsip.addEventListener('click', async () => {
+      modalArsip.style.display = 'flex';
+
+      const batas = new Date();
+      batas.setDate(batas.getDate() - 14);
+
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('*')
+        .gte('tgl', batas.toISOString().split('T')[0])
+        .order('tgl', { ascending: true });
+
+      if (error) {
+        arsipContent.innerHTML = 'Gagal memuat arsip';
+        return;
+      }
+
+      if (!data.length) {
+        arsipContent.innerHTML = 'Belum ada arsip';
+        return;
+      }
+
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>Tanggal</th>
+              <th>Shift / Jam</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      let totalGaji = 0;
+
+      data.forEach(item => {
+        const kelas =
+          item.status === 'Masuk'
+            ? 'statusMasuk'
+            : item.status === 'Tidak Masuk'
+              ? 'statusTidak'
+              : 'statusLibur';
+
+        if (item.status === 'Masuk') {
+          totalGaji += 200000;
+        }
+
+        html += `
+          <tr>
+            <td>${item.tgl}</td>
+            <td>${item.shift}</td>
+            <td class="${kelas}">${item.status}</td>
+          </tr>
+        `;
+      });
+
+      html += `
+          </tbody>
+        </table>
+        <br>
+        <b>Total Gaji: Rp ${totalGaji.toLocaleString('id-ID')}</b>
+      `;
+
+      arsipContent.innerHTML = html;
+    });
+
+    modalClose.addEventListener('click', () => {
+      modalArsip.style.display = 'none';
+    });
+
+    window.addEventListener('load', () => {
+      updateTanggalOtomatis();
+      loadRecords();
+
+      const savedShift = localStorage.getItem('lastShift');
+
+      if (savedShift) {
+        shiftInput.value = savedShift;
+      }
+    });
+
+    // Saat halaman dibuka lagi setelah standby / refresh / pindah tab,
+    // tanggal otomatis ikut tanggal perangkat terbaru.
+    window.addEventListener('focus', updateTanggalOtomatis);
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        updateTanggalOtomatis();
+      }
+    });
+
+    // Cek setiap 1 menit supaya kalau lewat jam 00:00 otomatis ganti tanggal.
+    setInterval(updateTanggalOtomatis, 60000);
+
+    shiftInput.addEventListener('change', () => {
+      localStorage.setItem('lastShift', shiftInput.value);
+    });
+  </script></body>
+</html>
